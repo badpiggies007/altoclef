@@ -322,8 +322,11 @@ public class BotBehaviour {
          * Make the current state match our copy
          */
         private void applyState(Settings s, AltoClefSettings sa) {
-            s.acceptableThrowawayItems.value.clear();
-            s.acceptableThrowawayItems.value.addAll(throwawayItems);
+            //Todo : Fix acceptableThrowawayItems
+
+            //s.acceptableThrowawayItems.value.clear(); // For some reasons that i don't know, end_stone is not added in this list and is not usable
+            //s.acceptableThrowawayItems.value.addAll(throwawayItems); // while beating the game in the end. because it overwrite everytime i change
+                                                            //this settings manually, i disabled that while waiting to fix it,
             s.followOffsetDistance.value = followOffsetDistance;
             s.mineScanDroppedItems.value = mineScanDroppedItems;
             s.allowDiagonalAscend.value = allowDiagonalAscend;

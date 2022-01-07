@@ -7,12 +7,18 @@ import adris.altoclef.tasks.DoToClosestBlockTask;
 import adris.altoclef.tasks.InteractWithBlockTask;
 import adris.altoclef.tasks.misc.EquipArmorTask;
 import adris.altoclef.tasks.misc.PlaceBedAndSetSpawnTask;
+import adris.altoclef.tasks.misc.SleepTask;
 import adris.altoclef.tasks.movement.DefaultGoToDimensionTask;
 import adris.altoclef.tasks.movement.GetCloseToBlockTask;
 import adris.altoclef.tasks.movement.GetToBlockTask;
 import adris.altoclef.tasks.movement.PickupDroppedItemTask;
+import adris.altoclef.tasks.movement.GetToXZTask;
+import adris.altoclef.tasks.movement.GetToYTask;
 import adris.altoclef.tasks.resources.CollectFoodTask;
 import adris.altoclef.tasks.resources.GetBuildingMaterialsTask;
+import adris.altoclef.tasks.resources.CollectBedTask;
+import adris.altoclef.tasks.resources.KillAndLootTask;
+import adris.altoclef.util.csharpisbetter.TimerGame;
 import adris.altoclef.tasksystem.Task;
 import adris.altoclef.util.Dimension;
 import adris.altoclef.util.ItemTarget;
@@ -27,6 +33,7 @@ import net.minecraft.item.Items;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.Vec3i;
+import net.minecraft.entity.mob.EndermanEntity;
 import org.apache.commons.lang3.ArrayUtils;
 
 import java.util.ArrayList;
@@ -35,17 +42,19 @@ import java.util.HashMap;
 import java.util.List;
 
 public class BeatMinecraft2Task extends Task {
-
     private static final Block[] TRACK_BLOCKS = new Block[] {
             Blocks.END_PORTAL_FRAME,
             Blocks.END_PORTAL,
             Blocks.CRAFTING_TABLE // For pearl trading + gold crafting
     };
-
-    private static final int FOOD_UNITS = 120;
+    private static final Block[] BEDS = CollectBedTask.BEDS; // For the Beatminecraft sleepTask
+	
+    private static final int FOOD_UNITS = 200;
+    private static final int FOOD_UNITS_END = 50;
     private static final int MIN_FOOD_UNITS = 10;
-    private static final int MIN_BUILD_MATERIALS = 5;
-    private static final int BUILD_MATERIALS = 40;
+    private static final int MIN_FOOD_UNITS_END = 5;
+    private static final int MIN_BUILD_MATERIALS = 16;
+    private static final int BUILD_MATERIALS = 128;
 
     private static final ItemTarget[] COLLECT_EYE_GEAR = combine(
             toItemTargets(ItemHelper.DIAMOND_ARMORS),
@@ -69,13 +78,19 @@ public class BeatMinecraft2Task extends Task {
     );
 
     private static final int END_PORTAL_FRAME_COUNT = 12;
-    private static final double END_PORTAL_BED_SPAWN_RANGE = 8;
+    private static final double END_PORTAL_BED_SPAWN_RANGE = 15;
 
-    private final boolean _shouldSetSpawnNearEndPortal;
+    private boolean _shouldSetSpawnNearEndPortal; // If true, will make the bot sleep near the endportal before entering it
+    private boolean _setspawnTaskRun = false; // set to true if bot need to setspawn near the portal
+                                           // set to false when done
     private final int _targetEyesMin;
     private final int _targetEyes;
     private final int _bedsToCollect;
-
+    private final TimerGame _bedInteractTimeout = new TimerGame(12); //A timeout for the sleepNearPortal, because it fail to sleep sometimes
+    private long _timeOfDay; // The time of the day, long between 0 and 24000 set later
+    private boolean _canSleep = false; //if the bot can sleep, set later
+    private boolean _sleepTaskRun = false; //same utility as of the "_setspawnTaskRun" but for sleeping
+	
     private BlockPos _endPortalCenterLocation;
     private boolean _ranStrongholdLocator;
     private boolean _endPortalOpened;
@@ -87,11 +102,14 @@ public class BeatMinecraft2Task extends Task {
 
     private Task _foodTask;
     private Task _gearTask;
-    private final Task _buildMaterialsTask = new GetBuildingMaterialsTask(BUILD_MATERIALS);
-    private final PlaceBedAndSetSpawnTask _setBedSpawnTask = new PlaceBedAndSetSpawnTask();
+    //TaskCatalogue.getSquashedItemTask(new ItemTarget(Items.DIRT, BUILD_MATERIALS), new ItemTarget(Items.END_STONE, BUILD_MATERIALS), new ItemTarget(Items.COBBLESTONE, BUILD_MATERIALS), new ItemTarget(Items.NETHERRACK, BUILD_MATERIALS));
+    private PlaceBedAndSetSpawnTask _setBedSpawnTask = new PlaceBedAndSetSpawnTask();
+    private final SleepTask _sleepTask = new SleepTask();
     private final Task _locateStrongholdTask;
     private final Task _goToNetherTask = new DefaultGoToDimensionTask(Dimension.NETHER); // To keep the portal build cache.
     private boolean _collectingEyes;
+    private boolean _collectingMaterials = false;
+    private int _bedBeforeSleep = 0;
 
     public BeatMinecraft2Task(boolean setSpawnNearEndPortal, int targetEnderEyesMin, int targetEnderEyes, int bedsToCollect) {
         _shouldSetSpawnNearEndPortal = setSpawnNearEndPortal;
@@ -112,14 +130,12 @@ public class BeatMinecraft2Task extends Task {
         if (!mod.getModSettings().shouldThrowawayUnusedItems()) {
             Debug.logWarning("\"throwawayUnusedItems\" is not set to true " + settingsWarningTail);
         }
-
+        mod.getBehaviour().allowWalkingOn(blockPos -> mod.getChunkTracker().isChunkLoaded(blockPos) && mod.getWorld().getBlockState(blockPos).getBlock() == Blocks.END_PORTAL);
         mod.getBlockTracker().trackBlock(TRACK_BLOCKS);
         mod.getBlockTracker().trackBlock(ItemHelper.itemsToBlocks(ItemHelper.BED));
         mod.getBehaviour().push();
-        mod.getBehaviour().addProtectedItems(Items.ENDER_EYE, Items.BLAZE_ROD, Items.ENDER_PEARL, Items.CRAFTING_TABLE);
+        mod.getBehaviour().addProtectedItems(Items.ENDER_EYE, Items.BLAZE_ROD, Items.ENDER_PEARL, Items.CRAFTING_TABLE, Items.FLINT_AND_STEEL, Items.WATER_BUCKET);
         mod.getBehaviour().addProtectedItems(ItemHelper.BED);
-        // Allow walking on end portal
-        mod.getBehaviour().allowWalkingOn(blockPos -> mod.getChunkTracker().isChunkLoaded(blockPos) && mod.getWorld().getBlockState(blockPos).getBlock() == Blocks.END_PORTAL);
     }
 
     @Override
@@ -154,16 +170,62 @@ public class BeatMinecraft2Task extends Task {
             @just hit the dragon normally
          */
 
+        // If we are in the overword and the player is higher than y=50
+        if (mod.getCurrentDimension() == Dimension.OVERWORLD && (mod.getPlayer().getPos().y > 50 || _sleepTaskRun)) {
+            _timeOfDay = (mod.getWorld().getTimeOfDay() % 24000); //get the time of the day
+            if (_timeOfDay > 12542 && _timeOfDay < 23460) { //if this condition is filled, we can sleep
+                _canSleep = true;
+            } else {
+                _canSleep = false;
+            }
+
+            if (_canSleep) { //if we can sleep
+                //and if we have a bed
+                if (mod.getInventoryTracker().hasItem(ItemHelper.BED) || _sleepTaskRun) {
+                    setDebugState("Sleeping in a bed"); //let's sleep
+                    _bedBeforeSleep = mod.getInventoryTracker().getItemCount(ItemHelper.BED); //keep the numbers of bed we have before running the task
+                    _sleepTaskRun = true;
+                    //as we sleep in a bed, we reset our spawnpoint for the stronghold-bed
+                    _bedSpawnLocation = null;
+                    _shouldSetSpawnNearEndPortal = true;
+                    return _sleepTask;
+                }
+            //we can't sleep, if we have run the task before...
+            } else if (_sleepTaskRun && _bedBeforeSleep >= mod.getInventoryTracker().getItemCount(ItemHelper.BED)) {
+                    //we get our bed back in inventory
+                    return TaskCatalogue.getItemTask("bed",mod.getInventoryTracker().getItemCount(ItemHelper.BED)+1);
+            } else if (_sleepTaskRun) { //and if we got our bed
+                    _sleepTaskRun = false; //this task is done
+            }
+        }
+
+
+        // Equip golden boots if have one and in the nether
+        if (mod.getCurrentDimension() == Dimension.NETHER) {
+            if (!mod.getInventoryTracker().isArmorEquipped(Items.GOLDEN_BOOTS) && mod.getInventoryTracker().hasItem(Items.GOLDEN_BOOTS)) {
+                    return new EquipArmorTask(Items.GOLDEN_BOOTS);
+            }
+        } else {// Else equip diamond armor if we have one
+            for (Item diamond : ItemHelper.DIAMOND_ARMORS) {
+                    if (mod.getInventoryTracker().hasItem(diamond) && !mod.getInventoryTracker().isArmorEquipped(diamond)) {
+                            return new EquipArmorTask(ItemHelper.DIAMOND_ARMORS);
+                    }
+            }
+        }
+		
+
         // End stuff.
         if (mod.getCurrentDimension() == Dimension.END) {
+	    _shouldSetSpawnNearEndPortal = true; //to be sure to re-set bed spawnpoint if we die, because sometimes, it doesn't do it.
             // If we have bed, do bed strats, otherwise punk normally.
             updateCachedEndItems(mod);
-            if (mod.getInventoryTracker().hasItem(ItemHelper.BED)) {
-                setDebugState("Bed strats");
-                return new KillEnderDragonWithBedsTask(new WaitForDragonAndPearlTask());
+            if (mod.getInventoryTracker().hasItem(ItemHelper.BED)) { //if we have bed
+                setDebugState("Erasing the dragon");
+                return new KillEnderDragonWithBedsTask(new WaitForDragonAndPearlTask()); // the WaitForDragonAndPearlTask is unused for now
             }
-            setDebugState("No beds, regular strats.");
-            return new KillEnderDragonTask();
+            // I have nothing better to do, since damaging dragon with sword is not fixed...
+            setDebugState("No beds, going to overword to get some beds");
+            return new GetToXZTask(15, 15, Dimension.END); //get to x=15, z=15 and hope for the dragon to kill us with fireball.
         }
 
         // Check for end portals. Always.
@@ -190,36 +252,48 @@ public class BeatMinecraft2Task extends Task {
         } else {
             _collectingEyes = false;
         }
-
+        
         // We have eyes. Locate our portal + enter.
         switch (mod.getCurrentDimension()) {
             case OVERWORLD -> {
                 // If we found our end portal...
                 if (endPortalFound(mod, _endPortalCenterLocation)) {
-                    if (_shouldSetSpawnNearEndPortal) {
-                        if (!spawnSetNearPortal(mod, _endPortalCenterLocation)) {
-                            setDebugState("Setting spawn near end portal");
-                            return setSpawnNearPortalTask(mod);
-                        }
-                    }
-                    if (endPortalOpened(mod, _endPortalCenterLocation)) {
-                        // Does our (current inventory) + (end dropped items inventory) satisfy (base requirements)?
-                        //      If not, obtain (base requirements) - (end dropped items).
-                        setDebugState("Getting equipment for End");
-                        if (!hasItemOrDroppedInEnd(mod, Items.IRON_SWORD) && !hasItemOrDroppedInEnd(mod, Items.DIAMOND_SWORD)) {
-                            return TaskCatalogue.getItemTask(Items.IRON_SWORD, 1);
-                        }
-                        if (!hasItemOrDroppedInEnd(mod, Items.WATER_BUCKET) && !hasItemOrDroppedInEnd(mod, Items.BUCKET)) {
-                            return TaskCatalogue.getItemTask(Items.BUCKET, 1);
-                        }
-                        if (!hasItemOrDroppedInEnd(mod, Items.IRON_PICKAXE) && !hasItemOrDroppedInEnd(mod, Items.DIAMOND_PICKAXE)) {
-                            return TaskCatalogue.getItemTask(Items.DIAMOND_PICKAXE, 1);
-                        }
-                        if (needsBuildingMaterials(mod)) {
-                            return _buildMaterialsTask;
-                        }
+                    // Does our (current inventory) + (end dropped items inventory) satisfy (base requirements)?
+                    //      If not, obtain (base requirements) - (end dropped items).
+                    setDebugState("Getting equipment for End");
 
-                        // We're as ready as we'll ever be, hop into the portal!
+                    if (!hasItemOrDroppedInEnd(mod, Items.IRON_SWORD) && !hasItemOrDroppedInEnd(mod, Items.DIAMOND_SWORD)) {
+                        return TaskCatalogue.getItemTask(Items.IRON_SWORD, 1);
+                    }
+                    if (!hasItemOrDroppedInEnd(mod, Items.WATER_BUCKET)) { //get a water bucket for MLGs
+                        return TaskCatalogue.getItemTask(Items.WATER_BUCKET, 1);
+                    }
+                    if (!hasItemOrDroppedInEnd(mod, Items.IRON_PICKAXE) && !hasItemOrDroppedInEnd(mod, Items.DIAMOND_PICKAXE)) {
+                        return TaskCatalogue.getItemTask(Items.DIAMOND_PICKAXE, 1);
+                    }
+                    if (shouldForce(mod, getMaterialTask(mod,BUILD_MATERIALS))) {
+                        setDebugState("Need some blocks");
+                        return getMaterialTask(mod,BUILD_MATERIALS);
+                    }
+                    if (needsBuildingMaterials(mod)) {
+                        setDebugState("Need some blocks");
+                        return getMaterialTask(mod,BUILD_MATERIALS);
+                    }
+                    // Get beds before getting back in the end.
+                    if (mod.getCurrentDimension() == Dimension.OVERWORLD && needsBeds(mod)) {
+                        _shouldSetSpawnNearEndPortal = true;//to be sure for the spawnpoint
+                        _bedSpawnLocation = null;
+                        setDebugState("Getting beds before stronghold search.");
+                        return getBedTask(mod);
+                    }
+
+                    if (_shouldSetSpawnNearEndPortal) { //If it need to set spawn near the portal
+                        setDebugState("Setting spawn near end portal");
+                        return setSpawnNearPortalTask(mod);
+                    }
+
+                    // We're as ready as we'll ever be, hop into the portal!
+                    if (endPortalOpened(mod, _endPortalCenterLocation)) {
                         setDebugState("Entering End");
                         return new DoToClosestBlockTask(
                                 blockPos -> new GetToBlockTask(blockPos.up()),
@@ -229,17 +303,31 @@ public class BeatMinecraft2Task extends Task {
                         // Open the portal! (we have enough eyes, do it)
                         setDebugState("Opening End Portal");
                         return new DoToClosestBlockTask(
-                                blockPos -> new InteractWithBlockTask(Items.ENDER_EYE, blockPos),
-                                blockPos -> !isEndPortalFrameFilled(mod, blockPos),
-                                Blocks.END_PORTAL_FRAME
+                                        blockPos -> new InteractWithBlockTask(Items.ENDER_EYE, blockPos),
+                                        blockPos -> !isEndPortalFrameFilled(mod, blockPos),
+                                        Blocks.END_PORTAL_FRAME
                         );
                     }
+                    //We get all we need before opening the portal to avoid falling in it accidentally without setting spawnpoint 
                 } else {
-                    // Get beds before starting our portal location.
+		    _shouldSetSpawnNearEndPortal = true;
+
+                    // Get beds before looking for portal location.
                     if (mod.getCurrentDimension() == Dimension.OVERWORLD && needsBeds(mod)) {
                         setDebugState("Getting beds before stronghold search.");
                         return getBedTask(mod);
                     }
+                    
+                    //if we need food, get it
+                    if (shouldForce(mod, _foodTask)) {
+                            setDebugState("Getting Food for Ender Eye journey");
+                            return _foodTask;
+                    }
+                    if (mod.getInventoryTracker().totalFoodScore() < MIN_FOOD_UNITS_END) {
+                            _foodTask = new CollectFoodTask(FOOD_UNITS_END);
+                            return _foodTask;
+                    }
+					
                     // Portal Location
                     setDebugState("Locating End Portal...");
                     _ranStrongholdLocator = true;
@@ -247,11 +335,16 @@ public class BeatMinecraft2Task extends Task {
                 }
             }
             case NETHER -> {
-                // Portal Location
-                setDebugState("Locating End Portal...");
-                if (needsBuildingMaterials(mod)) {
-                    return _buildMaterialsTask;
+                //With how the current task work, this should not be executed rn
+                if (shouldForce(mod, getMaterialTask(mod,BUILD_MATERIALS))) {
+                    setDebugState("Need some blocks");
+                    return getMaterialTask(mod,BUILD_MATERIALS);
                 }
+                if (needsBuildingMaterials(mod)) {
+                        setDebugState("Need some blocks");
+                        return getMaterialTask(mod,BUILD_MATERIALS);
+                }
+                setDebugState("Locating End Portal...");
                 return _locateStrongholdTask;
             }
         }
@@ -259,8 +352,21 @@ public class BeatMinecraft2Task extends Task {
         return null;
     }
 
+    //Check if we need build materials
     private boolean needsBuildingMaterials(AltoClef mod) {
-        return mod.getInventoryTracker().getBuildingMaterialCount() < MIN_BUILD_MATERIALS || shouldForce(mod, _buildMaterialsTask);
+        if (_collectingMaterials) {
+            boolean res = mod.getInventoryTracker().getItemCount(Items.DIRT, Items.COBBLESTONE, Items.NETHERRACK, Items.END_STONE) < BUILD_MATERIALS;
+            if (!res) {
+                    _collectingMaterials = false;
+            }
+            return res;
+        } else {
+            boolean res = mod.getInventoryTracker().getItemCount(Items.DIRT, Items.COBBLESTONE, Items.NETHERRACK, Items.END_STONE) < MIN_BUILD_MATERIALS;
+            if (res) {
+                    _collectingMaterials = true;
+            }
+            return res;
+        }
     }
 
     private void updateCachedEndItems(AltoClef mod) {
@@ -348,6 +454,16 @@ public class BeatMinecraft2Task extends Task {
         return Arrays.stream(frameOffsets).map(endPortalCenter::add).toList();
     }
 
+    private Task getMaterialTask(AltoClef mod, int count) {
+        //Custom task to get materials if we need some
+        if (mod.getCurrentDimension() == Dimension.OVERWORLD) {
+            return TaskCatalogue.getItemTask("cobblestone",count);
+        } else if (mod.getCurrentDimension() == Dimension.NETHER) {
+            return TaskCatalogue.getItemTask("netherrack",count);
+        }
+        return TaskCatalogue.getItemTask("end_stone",count);
+    }
+
     private Task getEyesOfEnderTask(AltoClef mod, int targetEyes) {
         if (mod.getEntityTracker().itemDropped(Items.ENDER_EYE)) {
             setDebugState("Picking up Dropped Eyes");
@@ -380,15 +496,12 @@ public class BeatMinecraft2Task extends Task {
         switch (mod.getCurrentDimension()) {
             case OVERWORLD -> {
                 // Make sure we have gear, then food.
-                for (Item diamond : ItemHelper.DIAMOND_ARMORS) {
-                    if (mod.getInventoryTracker().hasItem(diamond) && !mod.getInventoryTracker().isArmorEquipped(diamond)) {
-                        return new EquipArmorTask(ItemHelper.DIAMOND_ARMORS);
-                    }
-                }
+
                 if (shouldForce(mod, _gearTask)) {
                     setDebugState("Getting gear for Ender Eye journey");
                     return _gearTask;
                 }
+				
                 if (shouldForce(mod, _foodTask)) {
                     setDebugState("Getting Food for Ender Eye journey");
                     return _foodTask;
@@ -399,23 +512,29 @@ public class BeatMinecraft2Task extends Task {
                     _gearTask = TaskCatalogue.getSquashedItemTask(IRON_GEAR);
                     return _gearTask;
                 }
+				
+                // Then get a bed before food
+                if (!mod.getInventoryTracker().hasItem(ItemHelper.BED)) {
+                        setDebugState("Getting a bed to sleep when night comes");
+                        return TaskCatalogue.getItemTask("bed",1);
+                }
 
-                // If we happen to find beds...
+                /* // We will get beds later, as it took space in inventory
                 if (needsBeds(mod) && anyBedsFound(mod)) {
                     setDebugState("A bed was found, grabbing that first.");
                     return getBedTask(mod);
-                }
+                }*/
 
-                // Then get food
+                // Now, let's get some food
                 if (mod.getInventoryTracker().totalFoodScore() < MIN_FOOD_UNITS) {
                     _foodTask = new CollectFoodTask(FOOD_UNITS);
                     return _foodTask;
                 }
 
-                // Get beds after food.
-                if (needsBeds(mod)) {
-                    setDebugState("Collecting beds.");
-                    return getBedTask(mod);
+                //Sometimes, after getting interupted by skeletons or something else, it doesn't end the cooking
+                if (CollectFoodTask.calculateFoodPotential(mod) != mod.getInventoryTracker().totalFoodScore()) {//if we can still cook some food
+                    _foodTask = new CollectFoodTask(CollectFoodTask.calculateFoodPotential(mod)); //cook the food left
+                    return _foodTask;
                 }
 
                 // Then get diamond
@@ -425,19 +544,16 @@ public class BeatMinecraft2Task extends Task {
                 }
                 // Then go to the nether.
                 setDebugState("Going to Nether");
-                if (!mod.getInventoryTracker().hasItem(Items.CRAFTING_TABLE)) {
-                    setDebugState("Grab a crafting table first tho");
-                    return TaskCatalogue.getItemTask(Items.CRAFTING_TABLE, 1);
-                }
                 return _goToNetherTask;
             }
             case NETHER -> {
                 if (needsBlazeRods) {
-                    setDebugState("Getting Blaze Rods");
+                    setDebugState("Getting Blaze Rods, "+blazeRodCount+"/"+blazeRodTarget);
                     return getBlazeRodsTask(mod, blazeRodTarget);
                 }
-                setDebugState("Getting Ender Pearls");
-                return getEnderPearlTask(mod, enderPearlTarget);
+                setDebugState("Getting Ender Pearls, "+mod.getInventoryTracker().getItemCount(Items.ENDER_PEARL)+"/"+enderPearlTarget);
+                //return getEnderPearlTask(mod, enderPearlTarget); //i think it's slower than farming enderman in the nether
+		return new KillAndLootTask(EndermanEntity.class, new ItemTarget(Items.ENDER_PEARL, enderPearlTarget)); // great if we find a warped forest
             }
             case END -> throw new UnsupportedOperationException("You're in the end. Don't collect eyes here.");
         }
@@ -445,7 +561,6 @@ public class BeatMinecraft2Task extends Task {
     }
 
     private Task setSpawnNearPortalTask(AltoClef mod) {
-        _bedSpawnLocation = null;
         if (_setBedSpawnTask.isSpawnSet()) {
             _bedSpawnLocation = _setBedSpawnTask.getBedSleptPos();
         }
@@ -454,8 +569,22 @@ public class BeatMinecraft2Task extends Task {
             setDebugState("Setting spawnpoint now.");
             return _setBedSpawnTask;
         }
+        
+        //If we need to setspawn and the timer is not elapsed
+	if (!_bedInteractTimeout.elapsed() && _setspawnTaskRun) {
+            return _setBedSpawnTask; //rerun the task, to be sure it's set
+        } else if (_setspawnTaskRun) { //if it's elapsed
+            //assuming it's good to go
+            _setspawnTaskRun = false;
+            Debug.logMessage("SET UP BED TIMEOUT / DONE");
+            _bedInteractTimeout.reset();
+            _shouldSetSpawnNearEndPortal = false;
+        }
+		
         // Get close to portal. If we're close enough, set our bed spawn somewhere nearby.
         if (_endPortalCenterLocation.isWithinDistance(mod.getPlayer().getPos(), END_PORTAL_BED_SPAWN_RANGE)) {
+            _bedInteractTimeout.reset();
+            _setspawnTaskRun = true;
             return _setBedSpawnTask;
         } else {
             setDebugState("Approaching portal");
@@ -488,7 +617,7 @@ public class BeatMinecraft2Task extends Task {
         return _bedsToCollect + (needsToSetSpawn ? 1 : 0);
     }
     private boolean needsBeds(AltoClef mod) {
-        return mod.getInventoryTracker().getItemCount(ItemHelper.BED) < getTargetBeds(mod);
+        return mod.getInventoryTracker().getItemCount(ItemHelper.BED) < getTargetBeds(mod)-1; //minus 1 because of the bed we need to leave in the stronghold
     }
     private Task getBedTask(AltoClef mod) {
         int targetBeds = getTargetBeds(mod);

@@ -1,5 +1,7 @@
 package adris.altoclef.tasks.misc;
 
+//Same as PlaceBedAndSpawn, but with some edits for sleeping
+//Todo : merge with PlaceBedAndSetSpawn
 import adris.altoclef.AltoClef;
 import adris.altoclef.Debug;
 import adris.altoclef.TaskCatalogue;
@@ -33,7 +35,7 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.Vec3i;
 import org.apache.commons.lang3.ArrayUtils;
 
-public class PlaceBedAndSetSpawnTask extends Task {
+public class SleepTask extends Task {
 
     private static final Block[] BEDS = CollectBedTask.BEDS;
 
@@ -69,17 +71,6 @@ public class PlaceBedAndSetSpawnTask extends Task {
         }
     });
     private boolean _sleepAttemptMade;
-    private final ActionListener<String> onOverlayMessage = new ActionListener<>(value -> {
-        final String[] NEUTRAL_MESSAGES = new String[]{"You can sleep only at night", "You can only sleep at night", "You may not rest now; there are monsters nearby"};
-        for (String checkMessage : NEUTRAL_MESSAGES) {
-            if (value.contains(checkMessage)) {
-                if (!_sleepAttemptMade) {
-                    _bedInteractTimeout.reset();
-                }
-                _sleepAttemptMade = true;
-            }
-        }
-    });
     private boolean _wasSleeping;
     private BlockPos _bedForSpawnPoint;
 
@@ -117,7 +108,6 @@ public class PlaceBedAndSetSpawnTask extends Task {
         _wasSleeping = false;
 
         mod.onGameMessage.addListener(onCheckGameMessage);
-        mod.onGameOverlayMessage.addListener(onOverlayMessage);
     }
 
     public void resetSleep() {
@@ -216,17 +206,16 @@ public class PlaceBedAndSetSpawnTask extends Task {
         mod.getBehaviour().pop();
         mod.getBlockTracker().stopTracking(BEDS);
         mod.onGameMessage.removeListener(onCheckGameMessage);
-        mod.onGameOverlayMessage.removeListener(onOverlayMessage);
     }
 
     @Override
     protected boolean isEqual(Task other) {
-        return other instanceof PlaceBedAndSetSpawnTask;
+        return other instanceof SleepTask;
     }
 
     @Override
     protected String toDebugString() {
-        return "Placing a bed nearby + resetting spawn point";
+        return "Sleeping in a bed";
     }
 
     @Override

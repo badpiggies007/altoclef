@@ -92,7 +92,8 @@ public class CollectFoodTask extends Task {
 
     // Gets the units of food if we were to convert all of our raw resources to food.
     @SuppressWarnings("RedundantCast")
-    private static double calculateFoodPotential(AltoClef mod) {
+    //Switched to public to access it everywhere
+    public static double calculateFoodPotential(AltoClef mod) {
         double potentialFood = 0;
         for (ItemStack food : mod.getInventoryTracker().getAvailableFoods()) {
             potentialFood += getFoodPotential(food);

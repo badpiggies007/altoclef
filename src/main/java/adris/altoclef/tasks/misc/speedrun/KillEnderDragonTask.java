@@ -71,8 +71,6 @@ public class KillEnderDragonTask extends Task {
         mod.getBehaviour().push();
         mod.getBehaviour().addThrowawayItems(Items.END_STONE);
         mod.getBlockTracker().trackBlock(Blocks.END_PORTAL);
-        // Don't forcefield endermen.
-        mod.getBehaviour().addForceFieldExclusion(entity -> entity instanceof EndermanEntity || entity instanceof EnderDragonEntity || entity instanceof EnderDragonPart);
         mod.getBehaviour().setPreferredStairs(true);
     }
 

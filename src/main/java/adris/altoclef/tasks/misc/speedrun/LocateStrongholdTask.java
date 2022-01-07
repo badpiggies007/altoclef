@@ -30,6 +30,7 @@ import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.lang.Math;
 
 public class LocateStrongholdTask extends Task {
 
@@ -71,10 +72,6 @@ public class LocateStrongholdTask extends Task {
 
     @Override
     protected Task onTick(AltoClef mod) {
-        if (_strongholdEstimatePos != null) {
-            if (_strongholdEstimatePos != null) {
-            }
-        }
         if (_strongholdEstimatePos == null && mod.getCurrentDimension() != Dimension.OVERWORLD) {
             setDebugState("Going to overworld");
             return new DefaultGoToDimensionTask(Dimension.OVERWORLD);
@@ -201,68 +198,21 @@ public class LocateStrongholdTask extends Task {
             setDebugState("Waiting for thrown eye to appear...");
             return null;
         }
-        if (_strongholdEstimatePos != null && (_strongholdEstimatePos.distanceTo(mod.getPlayer().getPos()) > 256 || mod.getCurrentDimension() == Dimension.NETHER)) {
-            if (_cachedEducatedPortal != null) {
-                return new EnterNetherPortalTask(new GetToBlockTask(_cachedEducatedPortal, false), Dimension.OVERWORLD);
-            }
-            if (_strongholdEstimatePos.distanceTo(_cachedEyeDirection2.getOrigin()) > 400 || 
-                mod.getInventoryTracker().getItemCount(Items.OBSIDIAN) >= 10) {
-                if (mod.getInventoryTracker().getItemCount(Items.COBBLESTONE) < 128){
-                    return TaskCatalogue.getItemTask(Items.COBBLESTONE,160); // ensure we have enouhg cobble to get out of the hole we dig -- just in case
-                }
-                if (mod.getCurrentDimension() != Dimension.NETHER) {
-                    setDebugState("Going to nether");
-                    return new DefaultGoToDimensionTask(Dimension.NETHER);
-                }
-                if (mod.getInventoryTracker().getItemCount(Items.OBSIDIAN) < 10 && !_netherGoalReached) {
-                    setDebugState("Collecting obsidian");
-                    return TaskCatalogue.getItemTask(Items.OBSIDIAN, 10);
-                }
-                if (_netherGoalPos == null) {
-                    _netherGoalPos = new BlockPos(_strongholdEstimatePos.multiply(0.125, 0, 0.125));
-                    _netherGoalPos = _netherGoalPos.add(0, PORTAL_TARGET_HEIGHT, 0);
-                }
-                if(mod.getPlayer().getPos().getX() - _netherGoalPos.getX() < Math.abs(15) && mod.getPlayer().getZ() - _netherGoalPos.getZ() < Math.abs(15) && mod.getPlayer().getPos().getY() > _netherGoalPos.getY()){
-                    _netherGoalPos = new BlockPos(mod.getPlayer().getBlockPos().getX(), mod.getPlayer().getBlockPos().getY() + 1, mod.getPlayer().getBlockPos().getZ()); // ensure that baritone doesn't get lost over the lava since it has a hard time pathing large gaps of air blocks.
-                    // Also ensures that we don't have to break blocks we are standing on to place the portal. Gets within 120 blocks of the stronghold.
-                }
-                if (_netherGoalPos.isWithinDistance(mod.getPlayer().getPos(), _portalBuildRange)) {
-                    if (_portalBuildRange == 2) {
-                        _portalBuildRange = 20;
-                    }
-
-                    if (mod.getBlockTracker().getNearestWithinRange(mod.getPlayer().getPos(), _portalBuildRange, Blocks.NETHER_PORTAL) != null) {
-                        _cachedEducatedPortal = mod.getBlockTracker().getNearestWithinRange(mod.getPlayer().getPos(), _portalBuildRange, Blocks.NETHER_PORTAL);
-                    }
-                    if (!_netherGoalReached) {
-                        _netherGoalReached = true;
-                        Debug.logMessage("Educated coords reached");
-                    }
-                    if (mod.getBlockTracker().getNearestWithinRange(mod.getPlayer().getPos(), 3, Blocks.OBSIDIAN) != null && _educatedPortalStart == null) {
-                        _educatedPortalStart = mod.getBlockTracker().getNearestWithinRange(mod.getPlayer().getPos(), 2, Blocks.OBSIDIAN);
-                        _netherGoalPos = _educatedPortalStart;
-                    }
-                    setDebugState("Building portal");
-                    return new ConstructNetherPortalObsidianTask();
-                } else {
-                    if (_portalBuildRange > 2) {
-                    _portalBuildRange = 2;
-                    Debug.logMessage("_portalBuildRange set to " + _portalBuildRange);
-                    }
-                }
-                setDebugState("Going to educated travel coords");
-                return new GetToBlockTask(_netherGoalPos);
-            } 
-        }
         
-        // Travel to stronghold + search around stronghold if necessary.
-        SearchStrongholdTask tryNewSearch = new SearchStrongholdTask(_strongholdEstimatePos);
-        if ((_searchTask == null || !_searchTask.equals(tryNewSearch)) && mod.getCurrentDimension() == Dimension.OVERWORLD) {
-            Debug.logMessage("New Stronghold search task");
-            _searchTask = tryNewSearch;
+        //The nether travel method was a great idea, but it sometimes glitched with the portal,
+        //So we go to the end portal in the overworld
+        if (_strongholdEstimatePos != null && mod.getCurrentDimension() == Dimension.OVERWORLD) {
+            // Travel to stronghold + search around stronghold if necessary.
+            Vec3d strpos = new Vec3d((int)_strongholdEstimatePos.getX(), 65, (int)_strongholdEstimatePos.getZ());
+            setDebugState("Going to stronghold, distance: "+Math.round(strpos.distanceTo(mod.getPlayer().getPos())));
+            SearchStrongholdTask tryNewSearch = new SearchStrongholdTask(strpos);
+            if ((_searchTask == null || !_searchTask.equals(tryNewSearch)) && mod.getCurrentDimension() == Dimension.OVERWORLD) {
+                    Debug.logMessage("New Stronghold search task");
+                    _searchTask = tryNewSearch;
+            }
+            return _searchTask; 
         }
-        setDebugState("Searching for stronghold+portal");
-        return _searchTask; 
+        return null;
     }
 
     @Override
