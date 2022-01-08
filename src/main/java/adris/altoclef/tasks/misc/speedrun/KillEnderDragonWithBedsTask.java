@@ -58,6 +58,8 @@ public class KillEnderDragonWithBedsTask extends Task {
     protected Task onTick(AltoClef mod) {
 	    updateBreathCostMap(mod);
         /*
+        // OLD
+        
         If dragon is perching:
             If we're not in position (XZ):
                 Get in position (XZ)
@@ -69,6 +71,26 @@ public class KillEnderDragonWithBedsTask extends Task {
                 Right click the bed
         Else:
             // Perform "Default Wander" mode and avoid dragon breath.
+
+
+        //NEW
+        If found portal
+            Go in it
+        If no dragon is found
+            Get to 5 65 0, to get near the dragon if out of distance
+        If need blocks for end crystals
+            get blocks
+        If endcrystals is found
+            Go to it and destroy it
+            After destroying it
+                Equip water bucket
+                Get to y=63
+        If dragon is perching
+            Run the bed exploding task like the old one (Place bed at the 0 0 and kill the dragon)
+        Else
+            Move randomly near 0 0
+           
+
          */
         if (_endPortalTop == null) {
             _endPortalTop = locateExitPortalTop(mod); // Don't try to execute the set Exit Portal Top task until this is loaded.

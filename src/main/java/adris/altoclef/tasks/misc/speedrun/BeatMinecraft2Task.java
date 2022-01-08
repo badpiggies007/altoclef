@@ -141,6 +141,8 @@ public class BeatMinecraft2Task extends Task {
     @Override
     protected Task onTick(AltoClef mod) {
         /*
+        //OLD
+
         if in the overworld:
           if end portal found:
             if end portal opened:
@@ -168,6 +170,59 @@ public class BeatMinecraft2Task extends Task {
             @do bed strats
           else:
             @just hit the dragon normally
+
+        //NEW
+
+        If in overworld and the player is higher than y=50
+            if it have a bed to sleep and it can sleep
+                sleep
+            else if the bot slept
+                get the bed back in inventory
+        If we are in the nether and have golden boots
+            equip it
+        else if we have diamond armor not equiped
+            equip it
+        
+        If we are in the end
+            If we have bed
+                KilldragonWithBedTask
+            else
+                Get back in overworld to get some
+
+        If we need ender eyes
+            If can craft ender eyes
+                Craft it
+            If in overworld
+                Get gear for Ender eye journey
+                Get 1 bed to sleep for when night comes
+                Get food for Ender eye journey
+                End cooking food if habe any non-cooked food left
+                Get diamond gear
+                Go to the nether
+            If in nether
+                If need blate rods
+                    Get getBlazeRodsTask
+                KillAndLootTask(Enderman)
+        If in overworld :
+            If portal if found
+                Get iron sword
+                Get water bucket
+                Get diamond pickaxe if doesn't have one in iron or diamond
+                Get blocks if needed
+                Get beds
+                Set spawn near portal
+                If portal is open
+                    Get into it
+                Else
+                    Open it
+            Else
+                Get beds
+                Get food if doesn't have many
+                Locate end portal
+        If in nether :
+            Get blocks if needed
+            Locate strongholdtask
+                
          */
 
         // If we are in the overword and the player is higher than y=50
@@ -192,10 +247,10 @@ public class BeatMinecraft2Task extends Task {
                 }
             //we can't sleep, if we have run the task before...
             } else if (_sleepTaskRun && _bedBeforeSleep >= mod.getInventoryTracker().getItemCount(ItemHelper.BED)) {
-                    //we get our bed back in inventory
-                    return TaskCatalogue.getItemTask("bed",mod.getInventoryTracker().getItemCount(ItemHelper.BED)+1);
+                //we get our bed back in inventory
+                return TaskCatalogue.getItemTask("bed",mod.getInventoryTracker().getItemCount(ItemHelper.BED)+1);
             } else if (_sleepTaskRun) { //and if we got our bed
-                    _sleepTaskRun = false; //this task is done
+                _sleepTaskRun = false; //this task is done
             }
         }
 
@@ -207,9 +262,9 @@ public class BeatMinecraft2Task extends Task {
             }
         } else {// Else equip diamond armor if we have one
             for (Item diamond : ItemHelper.DIAMOND_ARMORS) {
-                    if (mod.getInventoryTracker().hasItem(diamond) && !mod.getInventoryTracker().isArmorEquipped(diamond)) {
-                            return new EquipArmorTask(ItemHelper.DIAMOND_ARMORS);
-                    }
+                if (mod.getInventoryTracker().hasItem(diamond) && !mod.getInventoryTracker().isArmorEquipped(diamond)) {
+                    return new EquipArmorTask(ItemHelper.DIAMOND_ARMORS);
+                }
             }
         }
 		
@@ -310,7 +365,7 @@ public class BeatMinecraft2Task extends Task {
                     }
                     //We get all we need before opening the portal to avoid falling in it accidentally without setting spawnpoint 
                 } else {
-		    _shouldSetSpawnNearEndPortal = true;
+                    _shouldSetSpawnNearEndPortal = true;
 
                     // Get beds before looking for portal location.
                     if (mod.getCurrentDimension() == Dimension.OVERWORLD && needsBeds(mod)) {
@@ -335,7 +390,6 @@ public class BeatMinecraft2Task extends Task {
                 }
             }
             case NETHER -> {
-                //With how the current task work, this should not be executed rn
                 if (shouldForce(mod, getMaterialTask(mod,BUILD_MATERIALS))) {
                     setDebugState("Need some blocks");
                     return getMaterialTask(mod,BUILD_MATERIALS);
